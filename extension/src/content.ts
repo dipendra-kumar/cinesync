@@ -30,9 +30,6 @@ interface StatusResponse {
 }
 
 // ── Frame context ──────────────────────────────────────────────────────────────
-// Content script runs in every frame (all_frames: true).
-// Only the top frame runs the full UI + WebSocket logic.
-// Iframes run a lightweight video bridge via postMessage.
 
 const IS_TOP = window === window.top;
 
@@ -45,7 +42,6 @@ let partnerOnline = false;
 let isSyncing = false;
 let minimized = false;
 let unreadCount = 0;
-let video: HTMLVideoElement | null = null;
 
 // ── Shadow DOM overlay (top frame only) ────────────────────────────────────────
 
@@ -72,17 +68,17 @@ styleEl.textContent = `
     position: absolute;
     top: 20px;
     right: 20px;
-    width: 260px;
-    background: rgba(12, 6, 10, 0.97);
-    border: 1px solid rgba(251,113,133,0.18);
-    border-radius: 14px;
-    color: #fff;
+    width: 312px;
+    background: rgba(12, 12, 16, 0.97);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    color: #f4f4f5;
     font-size: 13px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     display: none;
     flex-direction: column;
-    box-shadow: 0 12px 48px rgba(0,0,0,0.8), 0 0 0 1px rgba(225,29,72,0.06);
-    backdrop-filter: blur(20px);
+    box-shadow: 0 32px 80px rgba(0,0,0,0.9), 0 0 0 1px rgba(99,102,241,0.06);
+    backdrop-filter: blur(28px);
     pointer-events: all;
     overflow: hidden;
   }
@@ -92,157 +88,173 @@ styleEl.textContent = `
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 13px;
-    background: rgba(225,29,72,0.07);
+    padding: 11px 14px;
+    background: rgba(255,255,255,0.025);
     border-bottom: 1px solid rgba(255,255,255,0.06);
     cursor: grab;
     user-select: none;
+    flex-shrink: 0;
   }
   .header.dragging { cursor: grabbing; }
 
-  .logo { font-weight: 800; font-size: 14px; color: #fb7185; }
+  .logo { font-weight: 700; font-size: 13px; color: #e4e4e7; letter-spacing: 0.2px; }
 
-  .header-right { display: flex; align-items: center; gap: 7px; }
+  .header-right { display: flex; align-items: center; gap: 4px; }
 
-  .dots { display: flex; gap: 4px; }
+  .dots { display: flex; gap: 4px; margin-right: 4px; }
   .dot {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: #1f2937; transition: background 0.3s;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #27272a; transition: background 0.3s;
   }
-  .dot.conn { background: #22c55e; }
-  .dot.partner { background: #fb7185; }
+  .dot.conn    { background: #22c55e; }
+  .dot.partner { background: #818cf8; }
 
   .icon-btn {
-    background: none; border: none; color: #6b7280;
-    cursor: pointer; font-size: 15px; width: 22px; height: 22px;
+    background: none; border: none; color: #52525b;
+    cursor: pointer; width: 26px; height: 26px;
     display: flex; align-items: center; justify-content: center;
-    border-radius: 6px; padding: 0; transition: background 0.15s, color 0.15s;
-    position: relative;
+    border-radius: 7px; padding: 0; transition: background 0.15s, color 0.15s;
+    position: relative; flex-shrink: 0;
   }
-  .icon-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .icon-btn:hover { background: rgba(255,255,255,0.08); color: #e4e4e7; }
+  .icon-btn svg { pointer-events: none; }
+
+  @keyframes badge-pulse {
+    0%, 100% { transform: scale(1); }
+    50%       { transform: scale(1.18); }
+  }
 
   .unread-badge {
     position: absolute;
-    top: -4px; right: -4px;
-    background: #e11d48;
+    top: -6px; right: -6px;
+    background: #ef4444;
     color: #fff;
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 800;
-    min-width: 15px;
-    height: 15px;
-    border-radius: 8px;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 9px;
     display: none;
     align-items: center;
     justify-content: center;
-    padding: 0 3px;
+    padding: 0 4px;
     pointer-events: none;
     line-height: 1;
+    box-shadow: 0 0 0 2px rgba(12,12,16,0.9);
+    animation: badge-pulse 1.6s ease-in-out infinite;
   }
   .unread-badge.show { display: flex; }
 
-  .leave-btn {
-    background: rgba(239,68,68,0.07);
-    border: 1px solid rgba(239,68,68,0.18);
-    border-radius: 9px; color: #f87171;
-    cursor: pointer; font-size: 11px;
-    padding: 6px 10px; width: 100%;
-    font-family: inherit;
-    transition: background 0.15s;
-    margin-top: 2px;
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px;
+    font-size: 11.5px;
+    color: #3f3f46;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    transition: color 0.3s;
+    flex-shrink: 0;
+    user-select: none;
   }
-  .leave-btn:hover { background: rgba(239,68,68,0.18); color: #fca5a5; }
+  .status-bar::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #27272a;
+    flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  .status-bar.online { color: #a5b4fc; }
+  .status-bar.online::before { background: #818cf8; }
 
   .body {
     display: flex; flex-direction: column;
-    gap: 9px; padding: 12px;
+    gap: 8px; padding: 12px;
+    overflow: hidden;
   }
-
-  .room-row {
-    display: flex; align-items: center; justify-content: space-between;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.07);
-    border-radius: 10px; padding: 8px 11px;
-  }
-  .room-lbl { font-size: 10px; color: #6b7280; margin-bottom: 2px; letter-spacing: 0.5px; text-transform: uppercase; }
-  .room-code { color: #fb7185; font-weight: 800; letter-spacing: 4px; font-size: 17px; }
-
-  .copy-btn {
-    background: rgba(225,29,72,0.1);
-    border: 1px solid rgba(225,29,72,0.2);
-    border-radius: 7px; color: #fb7185;
-    cursor: pointer; font-size: 11px;
-    padding: 4px 10px; transition: background 0.15s;
-    white-space: nowrap;
-  }
-  .copy-btn:hover { background: rgba(225,29,72,0.22); }
-
-  .partner-row {
-    text-align: center; font-size: 12px; color: #6b7280;
-    padding: 3px 0; transition: color 0.3s;
-  }
-  .partner-row.online { color: #fb7185; }
 
   .chat-box {
-    height: 150px; overflow-y: auto;
-    display: flex; flex-direction: column; gap: 5px;
+    height: 240px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 6px;
+    padding-right: 2px;
   }
   .chat-box::-webkit-scrollbar { width: 3px; }
-  .chat-box::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+  .chat-box::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.07); border-radius: 2px; }
+  .chat-box::-webkit-scrollbar-track { background: transparent; }
 
   .msg {
-    padding: 5px 9px; border-radius: 10px;
-    font-size: 12px; line-height: 1.4;
-    word-break: break-word; max-width: 90%;
+    padding: 7px 11px; border-radius: 12px;
+    font-size: 13px; line-height: 1.45;
+    word-break: break-word; max-width: 85%;
   }
   .msg.me {
-    background: rgba(225,29,72,0.2); align-self: flex-end;
-    color: #fecdd3; border-bottom-right-radius: 3px;
+    background: rgba(99,102,241,0.22); align-self: flex-end;
+    color: #c7d2fe; border-bottom-right-radius: 4px;
   }
   .msg.them {
     background: rgba(255,255,255,0.07); align-self: flex-start;
-    color: #e5e7eb; border-bottom-left-radius: 3px;
+    color: #e4e4e7; border-bottom-left-radius: 4px;
   }
-  .msg.sys { color: #4b5563; font-size: 11px; text-align: center; align-self: center; }
+  .msg.sys {
+    color: #3f3f46; font-size: 11px;
+    text-align: center; align-self: center;
+    padding: 2px 6px; background: none;
+  }
 
-  .input-row { display: flex; gap: 6px; }
+  .divider-line {
+    border: none; border-top: 1px solid rgba(255,255,255,0.05);
+    margin: 0; flex-shrink: 0;
+  }
+
+  .emoji-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    padding: 1px 0;
+  }
+  .e-btn {
+    background: none; border: none; cursor: pointer;
+    font-size: 17px; padding: 4px 4px;
+    border-radius: 7px; line-height: 1;
+    transition: transform 0.12s, background 0.12s;
+    text-align: center;
+  }
+  .e-btn:hover { transform: scale(1.35); background: rgba(255,255,255,0.07); }
+  .e-btn:active { transform: scale(0.82); }
+
+  .input-row { display: flex; gap: 7px; align-items: flex-end; }
 
   .chat-in {
     flex: 1;
     background: rgba(255,255,255,0.05);
     border: 1px solid rgba(255,255,255,0.09);
-    border-radius: 9px; color: #fff;
-    font-size: 12px; padding: 7px 10px; outline: none;
+    border-radius: 11px; color: #f4f4f5;
+    font-size: 13px; padding: 9px 12px; outline: none;
     font-family: inherit; transition: border-color 0.15s;
+    resize: none; line-height: 1.4;
   }
-  .chat-in::placeholder { color: #374151; }
-  .chat-in:focus { border-color: rgba(251,113,133,0.45); }
+  .chat-in::placeholder { color: #3f3f46; }
+  .chat-in:focus { border-color: rgba(129,140,248,0.45); }
 
   .send-btn {
-    background: #e11d48; border: none; border-radius: 9px;
-    color: #fff; cursor: pointer; font-size: 15px;
-    width: 33px; height: 33px;
+    background: #6366f1; border: none; border-radius: 11px;
+    color: #fff; cursor: pointer;
+    width: 38px; height: 38px;
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0; transition: background 0.15s;
   }
-  .send-btn:hover { background: #be123c; }
-  .send-btn:disabled { background: #1f2937; cursor: not-allowed; }
+  .send-btn:hover { background: #4f46e5; }
+  .send-btn:disabled { background: #27272a; cursor: not-allowed; opacity: 0.5; }
 
-  .emoji-bar {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 1px;
-    padding: 2px 0;
+  .leave-btn {
+    background: none; border: none;
+    color: #3f3f46; cursor: pointer;
+    font-size: 11px; padding: 2px 0; width: 100%;
+    font-family: inherit; transition: color 0.15s;
+    text-align: center; letter-spacing: 0.2px;
   }
-  .e-btn {
-    background: none; border: none; cursor: pointer;
-    font-size: 18px; padding: 4px 5px;
-    border-radius: 8px; line-height: 1;
-    transition: transform 0.12s, background 0.12s;
-    text-align: center;
-  }
-  .e-btn:hover { transform: scale(1.4); background: rgba(255,255,255,0.07); }
-  .e-btn:active { transform: scale(0.82); }
+  .leave-btn:hover { color: #f87171; }
 
   @keyframes float-up {
     0%   { opacity: 0;   transform: translateY(0)     scale(0.4); }
@@ -269,23 +281,27 @@ panel.innerHTML = `
     <span class="logo">🎬 ${APP_NAME}</span>
     <div class="header-right">
       <div class="dots">
-        <div class="dot" id="connDot" title="Server connection"></div>
+        <div class="dot" id="connDot" title="Server"></div>
         <div class="dot" id="partDot" title="Partner"></div>
       </div>
-      <button class="icon-btn" id="minBtn" title="Minimise">−
+      <button class="icon-btn" id="copyLinkBtn" title="Copy invite link">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="minBtn" title="Minimise">
+        <svg id="minIcon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
         <span class="unread-badge" id="unreadBadge"></span>
       </button>
     </div>
   </div>
+  <div class="status-bar" id="partnerRow">Waiting for your partner…</div>
   <div class="body" id="panelBody">
-    <div class="room-row">
-      <div>
-        <div class="room-lbl">Room code</div>
-        <div class="room-code" id="roomCode">------</div>
-      </div>
-      <button class="copy-btn" id="copyBtn">Copy</button>
-    </div>
-    <div class="partner-row" id="partnerRow">Waiting for your partner…</div>
+    <div class="chat-box" id="chatBox"></div>
+    <hr class="divider-line">
     <div class="emoji-bar" id="emojiBar">
       <button class="e-btn" data-emoji="❤️">❤️</button>
       <button class="e-btn" data-emoji="💕">💕</button>
@@ -310,10 +326,14 @@ panel.innerHTML = `
       <button class="e-btn" data-emoji="😎">😎</button>
       <button class="e-btn" data-emoji="🌙">🌙</button>
     </div>
-    <div class="chat-box" id="chatBox"></div>
+    <hr class="divider-line">
     <div class="input-row">
-      <input class="chat-in" id="chatIn" placeholder="Say something…" maxlength="200" type="text" autocomplete="off">
-      <button class="send-btn" id="sendBtn" disabled>↑</button>
+      <input class="chat-in" id="chatIn" placeholder="Message…" maxlength="200" type="text" autocomplete="off">
+      <button class="send-btn" id="sendBtn" disabled>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
+        </svg>
+      </button>
     </div>
     <button class="leave-btn" id="leaveBtn">Leave Room</button>
   </div>
@@ -341,9 +361,8 @@ function setPartner(online: boolean): void {
   partnerOnline = online;
   $('partDot').className = `dot${online ? ' partner' : ''}`;
   const row = $('partnerRow');
-  row.className = `partner-row${online ? ' online' : ''}`;
-  row.textContent = online ? '♥ Partner connected' : 'Waiting for your partner…';
-  ($('sendBtn') as HTMLButtonElement).disabled = !online;
+  row.className = `status-bar${online ? ' online' : ''}`;
+  row.textContent = online ? 'Partner connected' : 'Waiting for your partner…';
 }
 
 function addMsg(text: string, kind: 'me' | 'them' | 'sys'): void {
@@ -403,7 +422,7 @@ document.addEventListener('mouseup', () => {
 window.addEventListener('resize', () => {
   const left = parseFloat(panel.style.left);
   const top  = parseFloat(panel.style.top);
-  if (isNaN(left) || isNaN(top)) return; // still using CSS right/top — no adjustment needed
+  if (isNaN(left) || isNaN(top)) return;
   panel.style.left = `${Math.max(0, Math.min(left, window.innerWidth  - panel.offsetWidth))}px`;
   panel.style.top  = `${Math.max(0, Math.min(top,  window.innerHeight - panel.offsetHeight))}px`;
 });
@@ -413,26 +432,29 @@ window.addEventListener('resize', () => {
 $('minBtn').addEventListener('click', () => {
   minimized = !minimized;
   ($('panelBody') as HTMLElement).style.display = minimized ? 'none' : 'flex';
-  // Keep the badge element inside minBtn — just update the visible text node
-  const minBtn = $('minBtn') as HTMLButtonElement;
-  // Update only the text node (first child), leave the badge span intact
-  const textNode = Array.from(minBtn.childNodes).find(n => n.nodeType === Node.TEXT_NODE);
-  if (textNode) textNode.textContent = minimized ? '+' : '−';
+  const icon = $('minIcon');
+  icon.innerHTML = minimized
+    ? '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>'  // plus
+    : '<line x1="5" y1="12" x2="19" y2="12"/>';                                          // minus
   if (!minimized) clearUnread();
 });
 
-// ── Copy room code ─────────────────────────────────────────────────────────────
+// ── Copy invite link ───────────────────────────────────────────────────────────
 
-$('copyBtn').addEventListener('click', () => {
+async function copyInviteLink(): Promise<void> {
   if (!roomId) return;
-  void navigator.clipboard.writeText(roomId).then(() => {
-    const btn = $('copyBtn') as HTMLButtonElement;
-    btn.textContent = 'Copied!';
-    setTimeout(() => (btn.textContent = 'Copy'), 1500);
-  });
-});
+  const serverUrl = await getServerUrl();
+  const httpUrl = serverUrl.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://');
+  const link = `${httpUrl}/join?room=${roomId}&video=${encodeURIComponent(location.href)}`;
+  await navigator.clipboard.writeText(link);
+  const btn = $('copyLinkBtn');
+  btn.style.color = '#22c55e';
+  setTimeout(() => (btn.style.color = ''), 1500);
+}
 
-// ── Leave button (in overlay) ──────────────────────────────────────────────────
+$('copyLinkBtn').addEventListener('click', () => { void copyInviteLink(); });
+
+// ── Leave button ───────────────────────────────────────────────────────────────
 
 $('leaveBtn').addEventListener('click', () => {
   disconnect();
@@ -457,22 +479,25 @@ chatIn.addEventListener('keydown', (e: Event) => {
   (e as KeyboardEvent).stopPropagation();
   if ((e as KeyboardEvent).key === 'Enter') sendChat();
 });
-chatIn.addEventListener('keyup', (e: Event) => (e as KeyboardEvent).stopPropagation());
+chatIn.addEventListener('keyup',    (e: Event) => (e as KeyboardEvent).stopPropagation());
 chatIn.addEventListener('keypress', (e: Event) => (e as KeyboardEvent).stopPropagation());
 
 // ── WebSocket ──────────────────────────────────────────────────────────────────
 
 async function getServerUrl(): Promise<string> {
   return new Promise(resolve => {
-    chrome.storage.local.get('serverUrl', r => {
-      resolve((r as { serverUrl?: string }).serverUrl ?? 'ws://localhost:8080');
-    });
+    try {
+      chrome.storage.local.get('serverUrl', r => {
+        resolve((r as { serverUrl?: string }).serverUrl ?? 'ws://localhost:8080');
+      });
+    } catch {
+      resolve('ws://localhost:8080');
+    }
   });
 }
 
 async function connectWS(action: 'create' | 'join', joinId?: string): Promise<void> {
   const url = await getServerUrl();
-
   ws = new WebSocket(url);
 
   ws.onopen = () => {
@@ -492,28 +517,40 @@ async function connectWS(action: 'create' | 'join', joinId?: string): Promise<vo
   ws.onclose = () => {
     setConnected(false);
     setPartner(false);
+    ($('sendBtn') as HTMLButtonElement).disabled = true;
     if (sessionActive) addMsg('Connection lost.', 'sys');
   };
 
   ws.onerror = () => addMsg('Could not connect to server. Check Settings in the popup.', 'sys');
 }
 
+// Send a control command to the MAIN-world injected script (bypasses DRM overrides)
+function controlVideo(action: 'play' | 'pause' | 'seek', time?: number): void {
+  window.dispatchEvent(new CustomEvent('__cs_to_page', { detail: { action, time } }));
+}
+
 function handleServerMsg(msg: ServerMessage): void {
   switch (msg.type) {
     case 'created':
       roomId = msg.roomId!;
-      ($('roomCode') as HTMLElement).textContent = roomId;
-      addMsg('Session created — share the code with your partner!', 'sys');
+      addMsg('Session created — share the invite link!', 'sys');
+      ($('sendBtn') as HTMLButtonElement).disabled = false;
       showPanel();
       notifyPopup();
       break;
 
     case 'joined':
       roomId = msg.roomId!;
-      ($('roomCode') as HTMLElement).textContent = roomId;
       addMsg('Joined the session!', 'sys');
+      ($('sendBtn') as HTMLButtonElement).disabled = false;
+      setPartner(true);
       showPanel();
       notifyPopup();
+      // Pause immediately — partner waits for host to start playback
+      isSyncing = true;
+      controlVideo('pause');
+      broadcastToIframes({ type: 'sync', action: 'pause', time: 0 });
+      setTimeout(() => { isSyncing = false; }, 800);
       break;
 
     case 'partner_joined':
@@ -556,8 +593,15 @@ function disconnect(): void {
   hidePanel();
 }
 
+function contextValid(): boolean {
+  try { return !!chrome.runtime?.id; } catch { return false; }
+}
+
 function notifyPopup(): void {
-  chrome.runtime.sendMessage({ type: 'status_changed' }).catch(() => { /* popup not open */ });
+  if (!contextValid()) return;
+  try {
+    chrome.runtime.sendMessage({ type: 'status_changed' }).catch(() => {});
+  } catch { /* extension context invalidated */ }
 }
 
 // ── Emoji reactions ────────────────────────────────────────────────────────────
@@ -588,21 +632,19 @@ function buildKeyframes(style: EmojiStyle, drift: number): Keyframe[] {
 
   switch (style) {
     case 'love':
-      // Floats up with a double heartbeat pulse mid-air
       return [
         { opacity: 0,   transform: `translateX(0)              translateY(0)     scale(0)` },
         { opacity: 1,   transform: `translateX(0)              translateY(-18px) scale(1.6)`,  offset: 0.08 },
         {               transform: `translateX(0)              translateY(-24px) scale(1.0)`,  offset: 0.14 },
-        {               transform: `translateX(${drift*.3}px)  translateY(-22vh) scale(1.25)`, offset: 0.32 }, // beat 1 up
-        {               transform: `translateX(${drift*.4}px)  translateY(-28vh) scale(0.95)`, offset: 0.42 }, // beat 1 down
-        {               transform: `translateX(${drift*.5}px)  translateY(-36vh) scale(1.25)`, offset: 0.54 }, // beat 2 up
-        {               transform: `translateX(${drift*.6}px)  translateY(-42vh) scale(0.95)`, offset: 0.64 }, // beat 2 down
+        {               transform: `translateX(${drift*.3}px)  translateY(-22vh) scale(1.25)`, offset: 0.32 },
+        {               transform: `translateX(${drift*.4}px)  translateY(-28vh) scale(0.95)`, offset: 0.42 },
+        {               transform: `translateX(${drift*.5}px)  translateY(-36vh) scale(1.25)`, offset: 0.54 },
+        {               transform: `translateX(${drift*.6}px)  translateY(-42vh) scale(0.95)`, offset: 0.64 },
         { opacity: 0.7, transform: `translateX(${drift*.85}px) translateY(-60vh) scale(0.8)`,  offset: 0.85 },
         { ...gone,      transform: `translateX(${drift}px)     translateY(-78vh) scale(0.4)` },
       ];
 
     case 'laugh':
-      // Full tumble spin as it rockets up
       return [
         { opacity: 0,   transform: `translateX(0)             translateY(0)     scale(0)   rotate(0deg)` },
         { opacity: 1,   transform: `translateX(0)             translateY(-20px) scale(1.6) rotate(-15deg)`, offset: 0.08 },
@@ -614,7 +656,6 @@ function buildKeyframes(style: EmojiStyle, drift: number): Keyframe[] {
       ];
 
     case 'shocked':
-      // Rapid side-to-side shake on entry, then blasts upward
       return [
         { opacity: 0,   transform: `translateX(0px)   translateY(0px)   scale(0)` },
         { opacity: 1,   transform: `translateX(-14px)  translateY(-6px)  scale(1.7)`, offset: 0.06 },
@@ -629,41 +670,38 @@ function buildKeyframes(style: EmojiStyle, drift: number): Keyframe[] {
       ];
 
     case 'hype':
-      // Bounces twice before soaring — like a jumping cheer
       return [
-        { opacity: 0,   transform: `translateX(0)             translateY(0px)   scale(0)   rotate(0deg)` },
-        { opacity: 1,   transform: `translateX(0)             translateY(-40px) scale(1.8) rotate(-12deg)`, offset: 0.09 },
-        {               transform: `translateX(${drift*.05}px) translateY(-8px)  scale(0.8) rotate(6deg)`,  offset: 0.18 }, // land 1
-        {               transform: `translateX(${drift*.12}px) translateY(-55px) scale(1.5) rotate(-8deg)`, offset: 0.27 }, // bounce 2
-        {               transform: `translateX(${drift*.2}px)  translateY(-12px) scale(0.85)rotate(4deg)`,  offset: 0.36 }, // land 2
-        {               transform: `translateX(${drift*.35}px) translateY(-22vh) scale(1.1) rotate(0deg)`,  offset: 0.50 }, // launch
+        { opacity: 0,   transform: `translateX(0)              translateY(0px)   scale(0)   rotate(0deg)` },
+        { opacity: 1,   transform: `translateX(0)              translateY(-40px) scale(1.8) rotate(-12deg)`, offset: 0.09 },
+        {               transform: `translateX(${drift*.05}px) translateY(-8px)  scale(0.8) rotate(6deg)`,  offset: 0.18 },
+        {               transform: `translateX(${drift*.12}px) translateY(-55px) scale(1.5) rotate(-8deg)`, offset: 0.27 },
+        {               transform: `translateX(${drift*.2}px)  translateY(-12px) scale(0.85)rotate(4deg)`,  offset: 0.36 },
+        {               transform: `translateX(${drift*.35}px) translateY(-22vh) scale(1.1) rotate(0deg)`,  offset: 0.50 },
         { opacity: 0.8, transform: `translateX(${drift*.7}px)  translateY(-50vh) scale(0.95)`,              offset: 0.72 },
         { opacity: 0.4, transform: `translateX(${drift*.9}px)  translateY(-67vh) scale(0.8)`,               offset: 0.88 },
         { ...gone,      transform: `translateX(${drift}px)     translateY(-78vh) scale(0.5)` },
       ];
 
     case 'sad':
-      // Slow, droopy ascent with a melancholy wobble
       return [
-        { opacity: 0,   transform: `translateX(0px)          translateY(0px)   scale(0)` },
-        { opacity: 0.9, transform: `translateX(0px)          translateY(-12px) scale(1.2)`, offset: 0.12 },
-        {               transform: `translateX(-6px)         translateY(-18px) scale(1.1)`, offset: 0.22 },
-        {               transform: `translateX(6px)          translateY(-22px) scale(1.1)`, offset: 0.32 },
-        {               transform: `translateX(-4px)         translateY(-26px) scale(1.05)`,offset: 0.42 },
+        { opacity: 0,   transform: `translateX(0px)            translateY(0px)   scale(0)` },
+        { opacity: 0.9, transform: `translateX(0px)            translateY(-12px) scale(1.2)`, offset: 0.12 },
+        {               transform: `translateX(-6px)           translateY(-18px) scale(1.1)`, offset: 0.22 },
+        {               transform: `translateX(6px)            translateY(-22px) scale(1.1)`, offset: 0.32 },
+        {               transform: `translateX(-4px)           translateY(-26px) scale(1.05)`,offset: 0.42 },
         {               transform: `translateX(${drift*.35}px) translateY(-28vh) scale(0.95)`, offset: 0.62 },
         { opacity: 0.5, transform: `translateX(${drift*.65}px) translateY(-48vh) scale(0.8)`,  offset: 0.82 },
-        { ...gone,      transform: `translateX(${drift}px)   translateY(-62vh) scale(0.55)` },
+        { ...gone,      transform: `translateX(${drift}px)     translateY(-62vh) scale(0.55)` },
       ];
 
     case 'fire':
-      // Rapid flicker on entry + fast erratic rise
       return [
-        { opacity: 0,   transform: `translateX(0)             translateY(0px)   scale(0)` },
-        { opacity: 1,   transform: `translateX(0)             translateY(-16px) scale(1.7)`, offset: 0.07 },
-        {               transform: `translateX(${drift*.08}px) translateY(-20px) scale(1.1)`, offset: 0.12 }, // flicker
-        {               transform: `translateX(${drift*.1}px)  translateY(-28px) scale(1.6)`, offset: 0.17 }, // flicker
-        {               transform: `translateX(${drift*.15}px) translateY(-34px) scale(1.0)`, offset: 0.22 }, // flicker
-        {               transform: `translateX(${drift*.2}px)  translateY(-40px) scale(1.5)`, offset: 0.27 }, // flicker
+        { opacity: 0,   transform: `translateX(0)              translateY(0px)   scale(0)` },
+        { opacity: 1,   transform: `translateX(0)              translateY(-16px) scale(1.7)`, offset: 0.07 },
+        {               transform: `translateX(${drift*.08}px) translateY(-20px) scale(1.1)`, offset: 0.12 },
+        {               transform: `translateX(${drift*.1}px)  translateY(-28px) scale(1.6)`, offset: 0.17 },
+        {               transform: `translateX(${drift*.15}px) translateY(-34px) scale(1.0)`, offset: 0.22 },
+        {               transform: `translateX(${drift*.2}px)  translateY(-40px) scale(1.5)`, offset: 0.27 },
         {               transform: `translateX(${drift*.35}px) translateY(-22vh) scale(1.2)`, offset: 0.42 },
         {               transform: `translateX(${drift*.55}px) translateY(-40vh) scale(1.0)`, offset: 0.60 },
         { opacity: 0.7, transform: `translateX(${drift*.8}px)  translateY(-58vh) scale(0.85)`,offset: 0.80 },
@@ -671,13 +709,12 @@ function buildKeyframes(style: EmojiStyle, drift: number): Keyframe[] {
       ];
 
     default:
-      // Gentle wavy float — sways left then right as it rises
       return [
         { opacity: 0,   transform: `translateX(0)              translateY(0)     scale(0)` },
         { opacity: 1,   transform: `translateX(0)              translateY(-18px) scale(1.5)`,  offset: 0.08 },
         {               transform: `translateX(${drift*.1}px)  translateY(-22px) scale(1.0)`,  offset: 0.14 },
         {               transform: `translateX(${drift*.4}px)  translateY(-20vh) scale(1.1)`,  offset: 0.35 },
-        {               transform: `translateX(${drift*.15}px) translateY(-36vh) scale(1.05)`, offset: 0.55 }, // sway back
+        {               transform: `translateX(${drift*.15}px) translateY(-36vh) scale(1.05)`, offset: 0.55 },
         {               transform: `translateX(${drift*.7}px)  translateY(-52vh) scale(0.95)`, offset: 0.75 },
         { opacity: 0.5, transform: `translateX(${drift*.85}px) translateY(-64vh) scale(0.8)`,  offset: 0.88 },
         { ...gone,      transform: `translateX(${drift}px)     translateY(-78vh) scale(0.55)` },
@@ -698,7 +735,7 @@ const STYLE_DURATION: Record<EmojiStyle, [number, number]> = {
 function spawnReaction(emoji: string): void {
   const style   = getEmojiStyle(emoji);
   const [minD, maxD] = STYLE_DURATION[style];
-  const count   = 4 + Math.floor(Math.random() * 4); // 4–7 per reaction
+  const count   = 4 + Math.floor(Math.random() * 4);
 
   for (let i = 0; i < count; i++) {
     setTimeout(() => {
@@ -711,11 +748,7 @@ function spawnReaction(emoji: string): void {
       const duration = (minD + Math.random() * (maxD - minD)) * 1000;
       const drift    = (Math.random() < 0.5 ? -1 : 1) * (30 + Math.random() * 90);
 
-      el.style.cssText = `
-        left: ${xPct}vw;
-        bottom: 6vh;
-        font-size: ${fontSize}rem;
-      `;
+      el.style.cssText = `left: ${xPct}vw; bottom: 6vh; font-size: ${fontSize}rem;`;
 
       el.animate(buildKeyframes(style, drift), {
         duration,
@@ -731,10 +764,9 @@ function spawnReaction(emoji: string): void {
 function sendReaction(emoji: string): void {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: 'reaction', emoji }));
-  spawnReaction(emoji); // also show it locally
+  spawnReaction(emoji);
 }
 
-// Wire up emoji bar buttons
 $('emojiBar').addEventListener('click', (e: Event) => {
   const btn = (e.target as Element).closest<HTMLElement>('.e-btn');
   if (!btn) return;
@@ -742,62 +774,15 @@ $('emojiBar').addEventListener('click', (e: Event) => {
   if (emoji && EMOJIS.includes(emoji)) sendReaction(emoji);
 });
 
-// ── Video sync ─────────────────────────────────────────────────────────────────
-
-function findVideo(): HTMLVideoElement | null {
-  const vids = Array.from(document.querySelectorAll<HTMLVideoElement>('video'));
-  if (!vids.length) return null;
-  return vids.reduce((best, v) =>
-    v.offsetWidth * v.offsetHeight > best.offsetWidth * best.offsetHeight ? v : best
-  );
-}
-
-const onPlay = (): void => {
-  if (isSyncing || !video || !ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({ type: 'sync', action: 'play', time: video.currentTime }));
-};
-
-const onPause = (): void => {
-  if (isSyncing || !video || !ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({ type: 'sync', action: 'pause', time: video.currentTime }));
-};
-
-const onSeeked = (): void => {
-  if (isSyncing || !video || !ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({ type: 'sync', action: 'seek', time: video.currentTime }));
-};
-
-function attachVideo(v: HTMLVideoElement): void {
-  if (video === v) return;
-  if (video) {
-    video.removeEventListener('play', onPlay);
-    video.removeEventListener('pause', onPause);
-    video.removeEventListener('seeked', onSeeked);
-  }
-  video = v;
-  v.addEventListener('play', onPlay);
-  v.addEventListener('pause', onPause);
-  v.addEventListener('seeked', onSeeked);
-}
+// ── Video sync (via injected.js MAIN-world bridge) ─────────────────────────────
+// The top frame never touches video elements directly — all control flows through
+// CustomEvents to injected.js, which uses the native (pre-DRM) prototype methods.
 
 function applySync(msg: ServerMessage): void {
-  // Apply to top-frame video if present
-  if (!video) video = findVideo();
-  if (video) {
-    isSyncing = true;
-    if (msg.action === 'play') {
-      video.currentTime = msg.time!;
-      void video.play().catch(() => { /* autoplay blocked */ });
-    } else if (msg.action === 'pause') {
-      video.currentTime = msg.time!;
-      video.pause();
-    } else if (msg.action === 'seek') {
-      video.currentTime = msg.time!;
-    }
-    setTimeout(() => { isSyncing = false; }, 500);
-  }
-  // Always broadcast to iframes — covers sites where video lives in an iframe
+  isSyncing = true;
+  controlVideo(msg.action!, msg.time);
   broadcastToIframes({ type: 'sync', action: msg.action, time: msg.time });
+  setTimeout(() => { isSyncing = false; }, 500);
 }
 
 function broadcastToIframes(payload: object): void {
@@ -806,24 +791,21 @@ function broadcastToIframes(payload: object): void {
   });
 }
 
-// Reattach if video element is replaced by the site (e.g. SPA navigation)
+// ── Top-frame: receive video events from MAIN world ────────────────────────────
+
 if (IS_TOP) {
-  new MutationObserver(() => {
-    if (!sessionActive) return;
-    if (!video || !document.contains(video)) {
-      const v = findVideo();
-      if (v) attachVideo(v);
-    }
-  }).observe(document.documentElement, { childList: true, subtree: true });
+  window.addEventListener('__cs_from_page', (e: Event) => {
+    // If the extension was reloaded, disconnect rather than leaving a zombie session
+    if (!contextValid()) { disconnect(); return; }
+    const { action, time } = (e as CustomEvent<{ action: string; time: number }>).detail;
+    if (isSyncing || !sessionActive || !ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'sync', action, time }));
+  });
 }
 
-// ── Top-frame-only: auto-join + popup messages ─────────────────────────────────
-// These must only run in the top frame. With all_frames:true, sendMessage reaches
-// every frame — without this guard every iframe would open its own WS connection.
+// ── Top-frame: auto-join + popup messages ──────────────────────────────────────
 
 if (IS_TOP) {
-  // Auto-join from invite link
-  // Partner lands on the video page with ?cinesync=ROOMID injected by the server.
   (function autoJoinFromUrl(): void {
     const params = new URLSearchParams(location.search);
     const autoRoom = params.get('cinesync');
@@ -836,13 +818,9 @@ if (IS_TOP) {
     history.replaceState(null, '', clean);
 
     sessionActive = true;
-    void connectWS('join', autoRoom).then(() => {
-      const v = findVideo();
-      if (v) attachVideo(v);
-    });
+    void connectWS('join', autoRoom);
   })();
 
-  // Messages from popup
   chrome.runtime.onMessage.addListener(
     (msg: PopupMessage, _sender, reply: (r: unknown) => void) => {
       switch (msg.type) {
@@ -852,19 +830,13 @@ if (IS_TOP) {
 
         case 'create_session':
           sessionActive = true;
-          void connectWS('create').then(() => {
-            const v = findVideo();
-            if (v) attachVideo(v);
-          });
+          void connectWS('create');
           reply({ ok: true });
           break;
 
         case 'join_session':
           sessionActive = true;
-          void connectWS('join', msg.roomId).then(() => {
-            const v = findVideo();
-            if (v) attachVideo(v);
-          });
+          void connectWS('join', msg.roomId);
           reply({ ok: true });
           break;
 
@@ -878,9 +850,7 @@ if (IS_TOP) {
   );
 }
 
-// ── Top-frame: listen for video events bubbled up from iframes ─────────────────
-// When the video lives in a cross-origin iframe, the iframe's content script
-// postMessages play/pause/seek events here, and we forward them to the server.
+// ── Top-frame: postMessage relay from iframes ──────────────────────────────────
 
 if (IS_TOP) {
   window.addEventListener('message', (e: MessageEvent) => {
@@ -891,12 +861,21 @@ if (IS_TOP) {
   });
 }
 
-// ── Iframe bridge (runs only inside iframes) ───────────────────────────────────
-// No UI here — just finds the video and relays events to/from the top frame.
+// ── Iframe bridge ──────────────────────────────────────────────────────────────
+// Lightweight — detects the video in cross-origin iframes and relays events to
+// the top frame via postMessage. No UI, no WebSocket.
 
 if (!IS_TOP) {
   let iVid: HTMLVideoElement | null = null;
   let iSyncing = false;
+
+  function findVideo(): HTMLVideoElement | null {
+    const vids = Array.from(document.querySelectorAll<HTMLVideoElement>('video'));
+    if (!vids.length) return null;
+    return vids.reduce((best, v) =>
+      v.offsetWidth * v.offsetHeight > best.offsetWidth * best.offsetHeight ? v : best
+    );
+  }
 
   function attachIframeVideo(v: HTMLVideoElement): void {
     if (iVid === v) return;
@@ -915,7 +894,6 @@ if (!IS_TOP) {
     v.addEventListener('seeked', () => emit('seek'));
   }
 
-  // Receive sync commands broadcast from the top frame
   window.addEventListener('message', (e: MessageEvent) => {
     const d = e.data as { __cinesync?: boolean; type?: string; action?: string; time?: number };
     if (!d?.__cinesync || d.type !== 'sync' || !iVid) return;
@@ -926,7 +904,6 @@ if (!IS_TOP) {
     setTimeout(() => { iSyncing = false; }, 500);
   });
 
-  // Detect video (handles dynamic/lazy-loaded players)
   const checkIframeVideo = (): void => {
     const v = findVideo();
     if (v) attachIframeVideo(v);
