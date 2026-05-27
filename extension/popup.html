@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="error-bar" id="error-bar" style="display:none;"></div>
+
+  <!-- Home: create or join -->
+  <div id="screen-home" class="screen" style="display:flex;">
+    <div class="logo-area">
+      <div class="logo">🎬 KD Cinema</div>
+      <div class="tagline">Kanchhu &amp; Dippu's private theater</div>
+    </div>
+
+    <div class="home-instructions">
+      Open any video page, click <strong>Create Session</strong>,
+      then share the invite link with your partner.
+      They click it and you're synced automatically.
+    </div>
+
+    <button id="btn-create" class="btn btn-primary">Create Session</button>
+    <button id="btn-to-settings" class="btn btn-ghost">⚙ Settings</button>
+  </div>
+
+  <!-- Session: active session info -->
+  <div id="screen-session" class="screen" style="display:none;">
+    <div class="logo-area">
+      <div class="logo">🎬 KD Cinema</div>
+    </div>
+
+    <div id="partner-badge" class="partner-badge">Waiting for partner…</div>
+
+    <div class="link-block">
+      <div class="link-lbl">Invite link — send this to your partner</div>
+      <div class="link-row">
+        <div id="invite-link" class="link-text">generating…</div>
+      </div>
+      <button id="btn-copy-link" class="btn btn-primary">Copy Invite Link</button>
+    </div>
+
+    <button id="btn-leave" class="btn btn-danger">Leave Session</button>
+    <button id="btn-session-settings" class="btn btn-ghost">⚙ Settings</button>
+  </div>
+
+  <!-- Settings -->
+  <div id="screen-settings" class="screen" style="display:none;">
+    <div class="settings-head">
+      <button id="btn-back" class="back-btn">← Back</button>
+      <span class="settings-title">Settings</span>
+    </div>
+
+    <div class="field-group">
+      <label class="field-lbl" for="server-url">Server URL</label>
+      <span class="field-hint">Paste your ngrok URL here — e.g. wss://abc.ngrok-free.app</span>
+      <input
+        id="server-url"
+        class="text-input"
+        placeholder="ws://localhost:8080"
+        spellcheck="false"
+        autocomplete="off"
+        type="url"
+      >
+    </div>
+
+    <button id="btn-save" class="btn btn-primary">Save</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
