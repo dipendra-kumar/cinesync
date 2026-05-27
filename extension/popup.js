@@ -54,12 +54,7 @@
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     activeTab = tab ?? null;
     const status = await getStatus();
-    if (!status) {
-      show("home");
-      showError("Navigate to a video page first, then try again.");
-      return;
-    }
-    if (status.sessionActive && status.roomId) {
+    if (status?.sessionActive && status.roomId) {
       await renderSession(status);
     } else {
       show("home");
@@ -76,7 +71,7 @@
       const status = await getStatus();
       if (status?.sessionActive) await renderSession(status);
     } catch {
-      showError("Could not reach the page. Refresh and try again.");
+      showError("Refresh the page first, then try again.");
     }
   });
   $("btn-copy-link").addEventListener("click", async () => {

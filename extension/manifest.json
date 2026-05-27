@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "KD Cinema",
+  "name": "CineSync",
   "version": "1.0.0",
-  "description": "Kanchhu & Dippu's private theater.",
+  "description": "Watch any video in perfect sync with your partner.",
   "permissions": ["storage", "tabs", "scripting"],
   "host_permissions": ["<all_urls>"],
   "background": {

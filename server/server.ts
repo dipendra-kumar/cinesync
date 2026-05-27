@@ -163,5 +163,5 @@ const heartbeat = setInterval(() => {
 wss.on('close', () => clearInterval(heartbeat));
 
 httpServer.listen(PORT, () => {
-  console.log(`🎬 KD Cinema server running on port ${PORT}`);
+  console.log(`🎬 CineSync server running on port ${PORT}`);
 });

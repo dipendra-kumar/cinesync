@@ -1,5 +1,7 @@
 export {};
 
+const APP_NAME = 'CineSync';
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 type SyncAction = 'play' | 'pause' | 'seek';
@@ -53,12 +55,13 @@ Object.assign(host.style, {
   position: 'fixed',
   top: '0',
   left: '0',
-  width: '0',
-  height: '0',
+  width: '100%',
+  height: '100%',
   zIndex: '2147483647',
   pointerEvents: 'none',
+  overflow: 'visible',
 });
-if (IS_TOP) document.documentElement.appendChild(host);
+if (IS_TOP) document.body.appendChild(host);
 const shadow = host.attachShadow({ mode: 'open' });
 
 const styleEl = document.createElement('style');
@@ -66,7 +69,7 @@ styleEl.textContent = `
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   .panel {
-    position: fixed;
+    position: absolute;
     top: 20px;
     right: 20px;
     width: 260px;
@@ -263,7 +266,7 @@ const panel = document.createElement('div');
 panel.className = 'panel';
 panel.innerHTML = `
   <div class="header" id="drag">
-    <span class="logo">🎬 KD Cinema</span>
+    <span class="logo">🎬 ${APP_NAME}</span>
     <div class="header-right">
       <div class="dots">
         <div class="dot" id="connDot" title="Server connection"></div>
@@ -323,13 +326,11 @@ const $ = (id: string): HTMLElement => shadow.getElementById(id) as HTMLElement;
 
 function showPanel(): void {
   panel.classList.add('active');
-  host.style.pointerEvents = 'all';
   clearUnread();
 }
 
 function hidePanel(): void {
   panel.classList.remove('active');
-  host.style.pointerEvents = 'none';
 }
 
 function setConnected(on: boolean): void {
@@ -398,6 +399,14 @@ document.addEventListener('mouseup', () => {
   dragging = false;
   dragHandle.classList.remove('dragging');
 }, true);
+
+window.addEventListener('resize', () => {
+  const left = parseFloat(panel.style.left);
+  const top  = parseFloat(panel.style.top);
+  if (isNaN(left) || isNaN(top)) return; // still using CSS right/top — no adjustment needed
+  panel.style.left = `${Math.max(0, Math.min(left, window.innerWidth  - panel.offsetWidth))}px`;
+  panel.style.top  = `${Math.max(0, Math.min(top,  window.innerHeight - panel.offsetHeight))}px`;
+});
 
 // ── Minimize ───────────────────────────────────────────────────────────────────
 
@@ -793,7 +802,7 @@ function applySync(msg: ServerMessage): void {
 
 function broadcastToIframes(payload: object): void {
   document.querySelectorAll<HTMLIFrameElement>('iframe').forEach(f => {
-    f.contentWindow?.postMessage({ __kdc: true, ...payload }, '*');
+    f.contentWindow?.postMessage({ __cinesync: true, ...payload }, '*');
   });
 }
 
@@ -875,8 +884,8 @@ if (IS_TOP) {
 
 if (IS_TOP) {
   window.addEventListener('message', (e: MessageEvent) => {
-    const d = e.data as { __kdc?: boolean; type?: string; action?: string; time?: number };
-    if (!d?.__kdc || d.type !== 'video_event') return;
+    const d = e.data as { __cinesync?: boolean; type?: string; action?: string; time?: number };
+    if (!d?.__cinesync || d.type !== 'video_event') return;
     if (!sessionActive || !ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ type: 'sync', action: d.action, time: d.time }));
   });
@@ -896,7 +905,7 @@ if (!IS_TOP) {
     const emit = (action: string): void => {
       if (iSyncing) return;
       window.top?.postMessage(
-        { __kdc: true, type: 'video_event', action, time: v.currentTime },
+        { __cinesync: true, type: 'video_event', action, time: v.currentTime },
         '*',
       );
     };
@@ -908,8 +917,8 @@ if (!IS_TOP) {
 
   // Receive sync commands broadcast from the top frame
   window.addEventListener('message', (e: MessageEvent) => {
-    const d = e.data as { __kdc?: boolean; type?: string; action?: string; time?: number };
-    if (!d?.__kdc || d.type !== 'sync' || !iVid) return;
+    const d = e.data as { __cinesync?: boolean; type?: string; action?: string; time?: number };
+    if (!d?.__cinesync || d.type !== 'sync' || !iVid) return;
     iSyncing = true;
     if (d.action === 'play')  { iVid.currentTime = d.time!; void iVid.play().catch(() => {}); }
     if (d.action === 'pause') { iVid.currentTime = d.time!; iVid.pause(); }
